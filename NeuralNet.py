@@ -15,6 +15,8 @@ class NeuralNet:
     tf_layers = None  # Значения после каждого слоя (см self.compile)
     output = None  # Переменная выхода НС
     train_type = ""  # Тип обучения
+    size_list = []  # Размеры матриц весов и векторов сдвига
+    unroll_breaks = [(0, 0)]  # Индексы концов каждой матрицы в unroll векторе
 
     def __init__(self, min_element, max_element, amount_of_outputs):
         # Присваивание значений, сброс к начальным условиям
@@ -24,6 +26,8 @@ class NeuralNet:
         self.design = []
         self.tf_matrixes = []
         self.tf_layers = []
+        self.size_list = []
+        self.unroll_breaks = []
 
     def add(self, amount_of_units, activation_func):
         # Добавление еще одного слоя в НС
@@ -43,6 +47,7 @@ class NeuralNet:
         # Вектор сдвига (bias) должен иметь строк столько же, сколько матрица весов (weight_matrix), и один столбец
         # (см. "Broadcast")
         bias_vector = numpy.random.uniform(self.min_element, self.max_element, (size[0], 1))
+        self.size_list.append((weight_matrix.shape, bias_vector.shape))
         return weight_matrix, bias_vector
 
     def __create_tf_matrixes(self):
@@ -54,6 +59,11 @@ class NeuralNet:
             # Цикл идет до длины self.design - 1 потому что, нет ничего после выходного слоя
             current_layer_units = self.design[index][0]
             next_layer_units = self.design[index + 1][0]
+            size = current_layer_units * next_layer_units  # Количество элементов матрицы
+            weight_breaker = size + self.unroll_breaks[index][1]  # Индекс конца матрицы весов в unroll векторе -
+            # ее размер, плюс сдвиг, связанный с предыдущими матрицами
+            bias_breaker = weight_breaker + next_layer_units  # Аналогично
+            self.unroll_breaks.append((weight_breaker, bias_breaker))
             weight_matrix, bias_vector = self.__create_layer_matrixes((next_layer_units, current_layer_units))
             tf_weight_matrix = tf.Variable(weight_matrix, dtype=tf.double)
             tf_bias_vector = tf.Variable(bias_vector, dtype=tf.double)
@@ -175,6 +185,11 @@ class NeuralNet:
         if not self.if_compile:
             print('Compile model before calculate cost')
             return -1
+        self.assign_matrixes(tf_matrixes)
+        return self.calculate_cost(x, y)  # Возвращение вычисленной ценовой функции
+
+    def assign_matrixes(self, tf_matrixes):
+        # Выполнение присваивания матрицам значений
         tf_assign = []
         for index, layer in enumerate(self.tf_matrixes):
             tf_assign.append(layer[0].assign(tf_matrixes[index][0]))  # Данная конструкция создает и добавляет в список
@@ -182,8 +197,33 @@ class NeuralNet:
             # после чего происходит присваивание
             tf_assign.append(layer[1].assign(tf_matrixes[index][1]))  # Аналогично
         self.sess.run(tf_assign)  # Присваивание значениям self.tf_matrixes tf_matrixes
-        return self.calculate_cost(x, y)  # Возвращение вычисленной ценовой функции
 
     def init_params(self):
         # Инициализация начальных параметров
         self.sess.run(self.init)
+
+    def unroll_matrixes(self):
+        # Данная функция "разворачивает" все матрицы в один вектор строку
+        numpy_matrixes = self.sess.run(self.tf_matrixes)  # Получение матриц в формате numpy.array
+        unroll_vector = numpy.empty(0)  # Создаем пустой вектор, в который будем добавлять развернутые матрицы
+        for layer in numpy_matrixes:
+            weight_matrix = layer[0]
+            bias_vector = layer[1]
+            unroll_vector = numpy.append(unroll_vector, weight_matrix)
+            unroll_vector = numpy.append(unroll_vector, bias_vector)
+        return numpy_matrixes, self.size_list, unroll_vector
+
+    def roll_matrixes(self, unroll_vector):
+        # Противоположно self.unroll_matrixes, roll_matrixes сворачивает матрицы из вектора обратно в нормальный вид
+        tf_matrixes = []
+        for index, layer in enumerate(self.unroll_breaks[1:]):
+            left_weight_break = self.unroll_breaks[index][1]  # Левая граница матрицы весов = правая гранница
+            # вектора сдвига предыдущего слоя
+            right_weight_break = layer[0]  # Правая граница матрицы весов = левая граница вектора сдвига
+            right_bias_break = layer[1]  # Правая граница вектора сдвига
+            # Далее мы выделяем нужный нам фрагмент из развернутого вектра, и делаем его нужным размером
+            weight_matrix = unroll_vector[left_weight_break:right_weight_break].reshape(self.size_list[index][0])
+            bias_vector = unroll_vector[right_weight_break:right_bias_break].reshape(self.size_list[index][1])
+            tf_matrixes.append((weight_matrix, bias_vector))
+        self.assign_matrixes(tf_matrixes)
+        return tf_matrixes
