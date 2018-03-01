@@ -27,7 +27,7 @@ class NeuralNet:
         self.tf_matrixes = []
         self.tf_layers = []
         self.size_list = []
-        self.unroll_breaks = []
+        self.unroll_breaks = [(0, 0)]
 
     def add(self, amount_of_units, activation_func):
         # Добавление еще одного слоя в НС
@@ -41,7 +41,7 @@ class NeuralNet:
         # как наследие прошлой реализации, хотя можно использовать и None
         self.add(amount_of_units, self.linear)
 
-    def __create_layer_matrixes(self, size):
+    def _create_layer_matrixes(self, size):
         # Создаем numpy матрицы слоя
         weight_matrix = numpy.random.uniform(self.min_element, self.max_element, size)
         # Вектор сдвига (bias) должен иметь строк столько же, сколько матрица весов (weight_matrix), и один столбец
@@ -64,7 +64,7 @@ class NeuralNet:
             # ее размер, плюс сдвиг, связанный с предыдущими матрицами
             bias_breaker = weight_breaker + next_layer_units  # Аналогично
             self.unroll_breaks.append((weight_breaker, bias_breaker))
-            weight_matrix, bias_vector = self.__create_layer_matrixes((next_layer_units, current_layer_units))
+            weight_matrix, bias_vector = self._create_layer_matrixes((next_layer_units, current_layer_units))
             tf_weight_matrix = tf.Variable(weight_matrix, dtype=tf.double)
             tf_bias_vector = tf.Variable(bias_vector, dtype=tf.double)
             tf_matrixes.append((tf_weight_matrix, tf_bias_vector))
@@ -192,10 +192,11 @@ class NeuralNet:
         # Выполнение присваивания матрицам значений
         tf_assign = []
         for index, layer in enumerate(self.tf_matrixes):
-            tf_assign.append(layer[0].assign(tf_matrixes[index][0]))  # Данная конструкция создает и добавляет в список
+            #tf_assign.append(layer[0].assign(tf_matrixes[index][0]))  # Данная конструкция создает и добавляет в список
             # TensorFlow "присваиватель", который далее запускается через self.sess.run,
             # после чего происходит присваивание
-            tf_assign.append(layer[1].assign(tf_matrixes[index][1]))  # Аналогично
+            #tf_assign.append(layer[1].assign(tf_matrixes[index][1]))  # Аналогично
+            pass
         self.sess.run(tf_assign)  # Присваивание значениям self.tf_matrixes tf_matrixes
 
     def init_params(self):
@@ -227,3 +228,6 @@ class NeuralNet:
             tf_matrixes.append((weight_matrix, bias_vector))
         self.assign_matrixes(tf_matrixes)
         return tf_matrixes
+
+    def return_unroll_dim(self):
+        return self.unroll_breaks[-1][-1]
